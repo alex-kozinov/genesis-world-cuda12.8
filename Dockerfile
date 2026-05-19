@@ -57,6 +57,8 @@ ARG PYTHON_VERSION=3.12
 ENV PYTHON_VERSION=${PYTHON_VERSION}
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NVIDIA_DRIVER_CAPABILITIES=all
+ENV PIP_NO_CACHE_DIR=1
+ENV PYTHONUNBUFFERED=1
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -64,6 +66,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
+    ca-certificates \
+    openssh-server \
+    nginx \
     gosu \
     bash-completion \
     libgl1 \
@@ -84,6 +89,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
+
+# -------------------------- RunPod host --------------------------
+RUN rm -f /etc/ssh/ssh_host_*
+COPY proxy/nginx.conf /etc/nginx/nginx.conf
+COPY proxy/readme.html /usr/share/nginx/html/readme.html
+COPY README.md /usr/share/nginx/html/README.md
+RUN python3 -m pip install --break-system-packages --no-cache-dir jupyterlab
 
 # --------------------------- Genesis ----------------------------
 RUN python3 -m pip install --break-system-packages --no-cache-dir open3d
@@ -110,6 +122,8 @@ ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 COPY 10_nvidia.json /usr/share/glvnd/egl_vendor.d/10_nvidia.json
 COPY nvidia_icd.json /usr/share/vulkan/icd.d/nvidia_icd.json
 COPY nvidia_layers.json /etc/vulkan/implicit_layer.d/nvidia_layers.json
+COPY scripts/start.sh /start.sh
+RUN chmod 755 /start.sh
 
 # ---------------------- Custom Entrypoint -----------------------
 # Resolve a user matching the caller's host UID at startup. If no user owns that UID yet, create one; if one does
@@ -124,6 +138,9 @@ if [ -n "${LOCAL_USER_ID}" ]; then
         useradd --shell /bin/bash --uid "${LOCAL_USER_ID}" -m "${USER_NAME}"
     fi
     chown -R "${USER_NAME}" "/opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/LuisaRender/" || true
+    if [ "$1" = "/start.sh" ]; then
+        exec "$@"
+    fi
     exec gosu "${USER_NAME}" "$@"
 else
     exec "$@"
@@ -133,4 +150,4 @@ EOF
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["bash"]
+CMD ["/start.sh"]
