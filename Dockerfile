@@ -41,11 +41,11 @@ RUN python3 -m pip install --break-system-packages "pybind11[global]"
 RUN python3 -m pip install --break-system-packages --no-cache-dir cmake==3.31.6
 
 # Build LuisaRender
-WORKDIR /workspace
+WORKDIR /opt
 RUN git clone https://github.com/Genesis-Embodied-AI/Genesis.git && \
     cd Genesis && \
     git submodule update --init --recursive
-COPY build_luisa.sh /workspace/build_luisa.sh
+COPY build_luisa.sh /opt/build_luisa.sh
 RUN chmod +x ./build_luisa.sh && ./build_luisa.sh ${PYTHON_VERSION}
 
 # ===============================================================
@@ -68,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     ca-certificates \
     openssh-server \
+    openssh-client \
     nginx \
     gosu \
     bash-completion \
@@ -88,7 +89,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt clean \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
+RUN git config --system --add safe.directory '*'
+
+WORKDIR /opt
 
 # -------------------------- RunPod host --------------------------
 RUN rm -f /etc/ssh/ssh_host_*
@@ -103,15 +106,18 @@ RUN git clone https://github.com/Genesis-Embodied-AI/Genesis.git && \
     cd Genesis && \
     python3 -m pip install --break-system-packages . && \
     python3 -m pip install --break-system-packages --no-cache-dir PyOpenGL==3.1.5
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+    tensorboard \
+    "rsl-rl-lib>=5.0.0"
 
 # -------------------- Surface Reconstruction --------------------
 # Set the LD_LIBRARY_PATH directly in the environment
-COPY --from=builder /workspace/Genesis/genesis/ext/ParticleMesher/ParticleMesherPy /opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/ParticleMesher/ParticleMesherPy
+COPY --from=builder /opt/Genesis/genesis/ext/ParticleMesher/ParticleMesherPy /opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/ParticleMesher/ParticleMesherPy
 ENV LD_LIBRARY_PATH=/opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/ParticleMesher/ParticleMesherPy:$LD_LIBRARY_PATH
 
 # --------------------- Ray Tracing Renderer ---------------------
 # Copy LuisaRender build artifacts from the builder stage
-COPY --from=builder /workspace/Genesis/genesis/ext/LuisaRender/build/bin /opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/LuisaRender/build/bin
+COPY --from=builder /opt/Genesis/genesis/ext/LuisaRender/build/bin /opt/conda/lib/python${PYTHON_VERSION}/site-packages/genesis/ext/LuisaRender/build/bin
 # fix GLIBCXX_3.4.30 not found
 # Remove this — it's dangerous and broke cmake
 # RUN cd /opt/conda/lib && \

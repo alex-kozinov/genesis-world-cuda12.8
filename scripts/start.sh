@@ -16,6 +16,30 @@ execute_script() {
     fi
 }
 
+setup_git_auth() {
+    mkdir -p ~/.ssh
+    chmod 700 ~/.ssh
+
+    if [[ -n "${GIT_SSH_PRIVATE_KEY}" ]]; then
+        echo "Setting up Git SSH key..."
+        printf '%s\n' "${GIT_SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+        chmod 644 ~/.ssh/known_hosts
+        cat >> ~/.ssh/config <<'EOF'
+Host github.com
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+EOF
+        chmod 600 ~/.ssh/config
+    fi
+
+    if [[ -n "${GITHUB_TOKEN}" ]]; then
+        echo "Setting up GitHub HTTPS auth..."
+        git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+    fi
+}
+
 setup_ssh() {
     if [[ ${PUBLIC_KEY} ]]; then
         echo "Setting up SSH..."
@@ -59,7 +83,7 @@ setup_ssh() {
 
 export_env_vars() {
     echo "Exporting environment variables..."
-    printenv | grep -E '^[A-Z_][A-Z0-9_]*=' | grep -v '^PUBLIC_KEY' | awk -F = '{ val = $0; sub(/^[^=]*=/, "", val); print "export " $1 "=\"" val "\"" }' > /etc/rp_environment
+    printenv | grep -E '^[A-Z_][A-Z0-9_]*=' | grep -vE '^(PUBLIC_KEY|GIT_SSH_PRIVATE_KEY|GITHUB_TOKEN)=' | awk -F = '{ val = $0; sub(/^[^=]*=/, "", val); print "export " $1 "=\"" val "\"" }' > /etc/rp_environment
 
     if ! grep -q 'source /etc/rp_environment' ~/.bashrc; then
         echo 'source /etc/rp_environment' >> ~/.bashrc
@@ -69,8 +93,8 @@ export_env_vars() {
 start_jupyter() {
     if [[ ${JUPYTER_PASSWORD} ]]; then
         echo "Starting Jupyter Lab..."
-        mkdir -p /workspace
-        cd /workspace
+        mkdir -p /opt
+        cd /opt
         nohup jupyter lab \
             --allow-root \
             --no-browser \
@@ -80,7 +104,7 @@ start_jupyter() {
             --ServerApp.terminado_settings='{"shell_command":["/bin/bash"]}' \
             --ServerApp.token="${JUPYTER_PASSWORD}" \
             --ServerApp.allow_origin=* \
-            --ServerApp.preferred_dir=/workspace \
+            --ServerApp.preferred_dir=/opt \
             &> /jupyter.log &
         echo "Jupyter Lab started"
     fi
@@ -92,6 +116,7 @@ execute_script "/pre_start.sh" "Running pre-start script..."
 echo "Pod Started"
 
 setup_ssh
+setup_git_auth
 start_jupyter
 export_env_vars
 
